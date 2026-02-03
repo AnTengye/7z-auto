@@ -1,0 +1,53 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore Auto7z.UI/Auto7z.UI.csproj
+
+    # 1. Build Standalone (Self-Contained)
+    - name: Publish Standalone (Self-Contained)
+      run: |
+        dotnet publish Auto7z.UI/Auto7z.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o build_output/standalone
+        mv build_output/standalone/Auto7z.UI.exe build_output/standalone/Auto7z-Standalone.exe
+
+    # 2. Build Framework-Dependent (Requires Runtime)
+    - name: Publish Framework-Dependent
+      run: |
+        dotnet publish Auto7z.UI/Auto7z.UI.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o build_output/framework-dependent
+        mv build_output/framework-dependent/Auto7z.UI.exe build_output/framework-dependent/Auto7z-NoRuntime.exe
+
+    # Zip the artifacts to keep them organized (especially if there are extra dlls)
+    - name: Archive Artifacts
+      run: |
+        Compress-Archive -Path build_output/standalone/* -DestinationPath Auto7z-Standalone-win-x64.zip
+        Compress-Archive -Path build_output/framework-dependent/* -DestinationPath Auto7z-FrameworkDependent-win-x64.zip
+
+    - name: Create Release
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          Auto7z-Standalone-win-x64.zip
+          Auto7z-FrameworkDependent-win-x64.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

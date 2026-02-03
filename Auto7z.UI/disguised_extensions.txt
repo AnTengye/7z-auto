@@ -1,0 +1,16 @@
+# Disguised Archive Extensions
+# Extensions listed here will be checked for hidden archive content
+# when 'Detect Disguised Archives' option is enabled.
+# One extension per line. Lines starting with # are comments.
+
+.mp4
+.mkv
+.avi
+.mov
+.wmv
+.jpg
+.jpeg
+.png
+.gif
+.bmp
+.pdf

@@ -1,0 +1,38 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.cache
+*.opensdf
+*.sdf
+*.v2
+
+# VS Code
+.vscode/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+debug_log.txt
+
+# Test Artifacts
+test/test_Unpacked/
+*_Unpacked/
+
+# Publish Outputs
+build_output/
+*.zip
+
+# Temporary files
+*.tmp
+
+# User specific (Optional, uncomment if you want to ignore local password changes)
+# passwords.txt
+test

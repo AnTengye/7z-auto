@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Squid-Box.SevenZipSharp" Version="1.6.2.24" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Auto7z.UI\Core\ExtractorEngine.cs" Link="Core\ExtractorEngine.cs" />
+    <Compile Include="..\Auto7z.UI\Core\PasswordManager.cs" Link="Core\PasswordManager.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\Auto7z.UI\7z.dll" Link="7z.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
