@@ -1,4 +1,4 @@
-# Auto7z (Win11 Recursive Unpacker)
+# <img src="Auto7z.UI/icon.ico" width="32" height="32" /> Auto7z (Win11 Recursive Unpacker)
 
 ## 简介 (Introduction)
 Auto7z 是一款专为 Windows 11 设计的自动化解压工具。
