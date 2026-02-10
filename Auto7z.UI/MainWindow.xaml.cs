@@ -16,31 +16,41 @@ namespace Auto7z.UI
             InitializeComponent();
             _settings = new AppSettings();
             _settings.Load();
+
+            Logger.Instance.MinLevel = _settings.LogLevel;
+            Logger.Instance.OnLog += OnLogReceived;
+
             _engine = new ExtractorEngine(_settings);
-            _engine.Log += OnLog;
-            Log("Auto7z initialized. Waiting for files...");
-            Log($"Current Directory: {AppDomain.CurrentDomain.BaseDirectory}");
-            Log("Ensure 7z.dll is present in this folder!");
+            _engine.Log += msg => Logger.Instance.Info(msg, "Engine");
+
+            Logger.Instance.Info("Auto7z initialized. Waiting for files...", "UI");
+            Logger.Instance.Debug($"Current Directory: {AppDomain.CurrentDomain.BaseDirectory}", "UI");
+
+            var dllPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "7z.dll");
+            if (!File.Exists(dllPath))
+                Logger.Instance.Warning("7z.dll not found! Place it next to the executable.", "UI");
         }
 
-        private void OnLog(string message)
+        private void OnLogReceived(string message, LogLevel level)
         {
-            Dispatcher.Invoke(() => Log(message));
+            Dispatcher.Invoke(() =>
+            {
+                LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+                LogBox.ScrollToEnd();
+                StatusText.Text = message;
+            });
         }
 
-        private void Log(string message)
+        private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
-            LogBox.ScrollToEnd();
-            StatusText.Text = message;
-        }
-
-        private void DisguisedCheckBox_Changed(object sender, RoutedEventArgs e)
-        {
-            _settings.EnableDisguisedArchiveDetection = DisguisedCheckBox.IsChecked == true;
-            Log(_settings.EnableDisguisedArchiveDetection 
-                ? "Disguised archive detection: ON" 
-                : "Disguised archive detection: OFF");
+            var settingsWindow = new SettingsWindow(_settings);
+            settingsWindow.Owner = this;
+            if (settingsWindow.ShowDialog() == true)
+            {
+                Logger.Instance.MinLevel = _settings.LogLevel;
+                Logger.Instance.Info("Settings saved.", "UI");
+                Logger.Instance.Debug($"New LogLevel: {_settings.LogLevel}, DisguisedArchiveDetection: {_settings.EnableDisguisedArchiveDetection}", "UI");
+            }
         }
 
         private void Window_DragOver(object sender, DragEventArgs e)
@@ -60,7 +70,7 @@ namespace Auto7z.UI
         {
             if (_isBusy)
             {
-                Log("⚠️ Engine is busy. Please wait.");
+                Logger.Instance.Warning("Engine is busy. Please wait.", "UI");
                 return;
             }
 
@@ -69,24 +79,54 @@ namespace Auto7z.UI
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
                 if (files != null && files.Length > 0)
                 {
+                    Logger.Instance.Debug($"Drop received: {files.Length} item(s)", "UI");
+                    foreach (var p in files)
+                    {
+                        bool isDir = Directory.Exists(p);
+                        Logger.Instance.Debug($"  → {p} ({(isDir ? "directory" : "file")})", "UI");
+                    }
+
                     _isBusy = true;
                     try
                     {
-                        foreach (var file in files)
+                        foreach (var path in files)
                         {
-                            if (Directory.Exists(file)) continue;
-
-                            string dir = Path.GetDirectoryName(file) ?? "";
-                            string name = Path.GetFileNameWithoutExtension(file);
-                            string output = Path.Combine(dir, name + "_Unpacked");
-
-                            await _engine.ProcessArchiveAsync(file, output);
+                            if (Directory.Exists(path))
+                            {
+                                Logger.Instance.Info($"Scanning directory: {path}", "UI");
+                                var innerFiles = Directory.GetFiles(path);
+                                if (innerFiles.Length == 0)
+                                {
+                                    Logger.Instance.Warning($"Directory is empty: {path}", "UI");
+                                    continue;
+                                }
+                                Logger.Instance.Debug($"Directory contains {innerFiles.Length} file(s):", "UI");
+                                foreach (var f in innerFiles)
+                                {
+                                    var fi = new FileInfo(f);
+                                    Logger.Instance.Debug($"  → {fi.Name} ({fi.Length} bytes, ext={fi.Extension})", "UI");
+                                }
+                                string output = path + "_Unpacked";
+                                foreach (var innerFile in innerFiles)
+                                {
+                                    Logger.Instance.Debug($"Dispatching to engine: {Path.GetFileName(innerFile)}", "UI");
+                                    await _engine.ProcessArchiveAsync(innerFile, output);
+                                }
+                            }
+                            else
+                            {
+                                string dir = Path.GetDirectoryName(path) ?? "";
+                                string name = Path.GetFileNameWithoutExtension(path);
+                                string output = Path.Combine(dir, name + "_Unpacked");
+                                Logger.Instance.Debug($"Dispatching to engine: {Path.GetFileName(path)}", "UI");
+                                await _engine.ProcessArchiveAsync(path, output);
+                            }
                         }
-                        Log("✅ All tasks completed.");
+                        Logger.Instance.Info("All tasks completed.", "UI");
                     }
                     catch (Exception ex)
                     {
-                        Log($"❌ Critical Error: {ex.Message}");
+                        Logger.Instance.Error($"Critical Error: {ex}", "UI");
                     }
                     finally
                     {

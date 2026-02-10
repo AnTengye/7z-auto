@@ -12,6 +12,7 @@ namespace Auto7z.UI.Core
     /// </summary>
     public class FileSignatureDetector
     {
+        private readonly Logger _log = Logger.Instance;
         // Magic byte signatures for common archive formats
         // Format: (signature bytes, offset, format)
         private static readonly List<(byte[] Signature, int Offset, InArchiveFormat Format)> _signatures = new()
@@ -92,6 +93,8 @@ namespace Auto7z.UI.Core
                     fs.Read(header, 0, bytesToRead);
                 }
 
+                _log.Debug($"DetectFormat: {fileInfo.Name}, size={fileInfo.Length}, reading {bytesToRead} header bytes", "SignatureDetector");
+
                 // Check each signature
                 foreach (var (signature, offset, format) in _signatures)
                 {
@@ -107,9 +110,14 @@ namespace Auto7z.UI.Core
                         }
                     }
 
-                    if (match) return format;
+                    if (match)
+                    {
+                        _log.Debug($"DetectFormat: {fileInfo.Name} → signature match: {GetFormatName(format)} at offset {offset}", "SignatureDetector");
+                        return format;
+                    }
                 }
 
+                _log.Debug($"DetectFormat: {fileInfo.Name} → no signature matched", "SignatureDetector");
                 return null;
             }
             catch
@@ -137,11 +145,13 @@ namespace Auto7z.UI.Core
             {
                 if (expectedFormats.Contains(detectedFormat.Value))
                 {
+                    _log.Debug($"IsDisguisedArchive: {Path.GetFileName(filePath)} → ext {ext} matches detected {GetFormatName(detectedFormat.Value)} → not disguised", "SignatureDetector");
                     return false;
                 }
             }
 
             // Extension is something else (like .mp4) but content is archive
+            _log.Debug($"IsDisguisedArchive: {Path.GetFileName(filePath)} → ext {ext} vs detected {GetFormatName(detectedFormat.Value)} → disguised=true", "SignatureDetector");
             return true;
         }
 

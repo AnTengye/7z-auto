@@ -8,15 +8,47 @@ namespace Auto7z.UI.Core
     public class AppSettings
     {
         private static readonly string ConfigDir = AppDomain.CurrentDomain.BaseDirectory;
+        private static readonly string PasswordsFile = Path.Combine(ConfigDir, "passwords.txt");
         private static readonly string DisguisedExtensionsFile = Path.Combine(ConfigDir, "disguised_extensions.txt");
 
         public bool EnableDisguisedArchiveDetection { get; set; } = false;
+        public bool AutoDetectUnknownExtensions { get; set; } = false;
+        public LogLevel LogLevel { get; set; } = LogLevel.Info;
 
         public HashSet<string> DisguisedExtensions { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public void Load()
         {
             LoadDisguisedExtensions();
+            Logger.Instance.Debug($"Settings loaded: LogLevel={LogLevel}, DisguisedArchiveDetection={EnableDisguisedArchiveDetection}, AutoDetectUnknown={AutoDetectUnknownExtensions}", "Settings");
+        }
+
+        public void Save()
+        {
+            SaveDisguisedExtensions();
+        }
+
+        public string GetPasswordsFilePath() => PasswordsFile;
+
+        public void SetDisguisedExtensions(IEnumerable<string> extensions)
+        {
+            DisguisedExtensions.Clear();
+            foreach (var ext in extensions)
+            {
+                var normalized = ext.StartsWith(".") ? ext : "." + ext;
+                DisguisedExtensions.Add(normalized);
+            }
+            SaveDisguisedExtensions();
+        }
+
+        private void SaveDisguisedExtensions()
+        {
+            try
+            {
+                var lines = DisguisedExtensions.Order().ToList();
+                File.WriteAllLines(DisguisedExtensionsFile, lines);
+            }
+            catch { }
         }
 
         private void LoadDisguisedExtensions()
@@ -39,6 +71,10 @@ namespace Auto7z.UI.Core
                     var ext = trimmed.StartsWith(".") ? trimmed : "." + trimmed;
                     DisguisedExtensions.Add(ext);
                 }
+
+                var extList = DisguisedExtensions.Order().ToList();
+                var preview = extList.Count <= 10 ? string.Join(", ", extList) : string.Join(", ", extList.Take(10)) + $" ... (+{extList.Count - 10} more)";
+                Logger.Instance.Debug($"Loaded {extList.Count} disguised extension(s): {preview}", "Settings");
             }
             catch
             {

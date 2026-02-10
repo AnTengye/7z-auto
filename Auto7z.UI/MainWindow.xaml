@@ -30,9 +30,8 @@
         <!-- Status Bar -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center">
             <TextBlock x:Name="StatusText" Text="Ready." Foreground="#666"/>
-            <CheckBox x:Name="DisguisedCheckBox" Content="Detect Disguised Archives (.mp4, etc.)" 
-                      Margin="20,0,0,0" VerticalAlignment="Center"
-                      Checked="DisguisedCheckBox_Changed" Unchecked="DisguisedCheckBox_Changed"/>
+            <Button x:Name="SettingsButton" Content="⚙ Settings" Margin="20,0,0,0" 
+                    Padding="10,2" Click="SettingsButton_Click"/>
         </StackPanel>
     </Grid>
 </Window>
