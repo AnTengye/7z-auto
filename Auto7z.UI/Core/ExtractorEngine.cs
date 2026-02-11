@@ -69,6 +69,18 @@ namespace Auto7z.UI.Core
 
         public async Task ProcessArchiveAsync(string sourceFile, string outputRoot)
         {
+            if (TryResolveToFirstVolume(sourceFile, out var resolvedSource, out var resolveMessage))
+            {
+                _log.Debug($"Input split-volume remap: {sourceFile} -> {resolvedSource}", "Engine");
+                Log?.Invoke(resolveMessage);
+                sourceFile = resolvedSource;
+            }
+            else if (TryBuildMissingFirstVolumeMessage(sourceFile, out var missingFirstMessage))
+            {
+                _log.Warning($"Split-volume first part missing for input: {sourceFile}", "Engine");
+                Log?.Invoke(missingFirstMessage);
+            }
+
             var fileInfo = new FileInfo(sourceFile);
             Log?.Invoke($"Starting process: {Path.GetFileName(sourceFile)}");
             _log.Debug($"ProcessArchive: {sourceFile} ({fileInfo.Length} bytes) → output: {outputRoot}", "Engine");
@@ -108,7 +120,7 @@ namespace Auto7z.UI.Core
                 return;
             }
 
-            Log?.Invoke($"{new string('-', depth * 2)} Analysing: {Path.GetFileName(currentFile)}");
+            Log?.Invoke($"{new string('-', depth * 2)} Preparing extraction: {Path.GetFileName(currentFile)}");
 
             string? extractedDir = await TryExtractWithPasswordsAsync(currentFile, tempRoot, forcedFormat);
 
@@ -174,30 +186,49 @@ namespace Auto7z.UI.Core
             }
 
             var potentialArchives = files
-                .Select(f => (Path: f, IsPotential: IsPotentialArchive(f, out var fmt), Format: fmt))
-                .Where(x => x.IsPotential && !IsSplitVolumePartButNotFirst(x.Path))
+                .Select(f =>
+                {
+                    bool isPotential = IsPotentialArchive(f, out var fmt);
+                    bool isSplitSecondary = IsSplitVolumePartButNotFirst(f);
+                    return (Path: f, IsPotential: isPotential, IsSplitSecondary: isSplitSecondary, Format: fmt);
+                })
+                .ToList();
+
+            var archivesToProcess = potentialArchives
+                .Where(x => x.IsPotential && !x.IsSplitSecondary)
                 .Select(x => (x.Path, x.Format))
                 .ToList();
 
-            _log.Debug($"Potential archives: {potentialArchives.Count} — [{string.Join(", ", potentialArchives.Select(a => Path.GetFileName(a.Path)))}]", "Engine");
-            
-            if (potentialArchives.Any())
+            var splitNonFirstParts = potentialArchives
+                .Where(x => x.IsSplitSecondary)
+                .Select(x => x.Path)
+                .ToList();
+            if (splitNonFirstParts.Count > 0)
             {
-                Log?.Invoke($"Found {potentialArchives.Count} nested archive(s). Processing...");
+                var preview = string.Join(", ", splitNonFirstParts.Take(3).Select(Path.GetFileName));
+                if (splitNonFirstParts.Count > 3) preview += $" ... (+{splitNonFirstParts.Count - 3})";
+                Log?.Invoke($"Detected split-volume secondary parts: {preview}. They will be handled via first volume.");
+            }
 
-                foreach (var (archive, format) in potentialArchives)
+            _log.Debug($"Potential archives: {archivesToProcess.Count} — [{string.Join(", ", archivesToProcess.Select(a => Path.GetFileName(a.Path)))}]", "Engine");
+            
+            if (archivesToProcess.Any())
+            {
+                Log?.Invoke($"Found {archivesToProcess.Count} nested archive(s). Processing...");
+
+                foreach (var (archive, format) in archivesToProcess)
                 {
                      Log?.Invoke($"Recursing into: {Path.GetFileName(archive)}");
                      await RecursiveExtractAsync(archive, tempRoot, finalOutput, depth + 1, format);
                 }
 
-                foreach (var file in files)
+                foreach (var item in potentialArchives)
                 {
-                    if (IsPotentialArchive(file)) continue; 
-                    if (IsSplitVolumePartButNotFirst(file)) continue;
+                    if (item.IsPotential) continue; 
+                    if (item.IsSplitSecondary) continue;
 
-                    _log.Debug($"Moving non-archive file to output: {Path.GetFileName(file)}", "Engine");
-                    MoveFileToFinal(file, finalOutput);
+                    _log.Debug($"Moving non-archive file to output: {Path.GetFileName(item.Path)}", "Engine");
+                    MoveFileToFinal(item.Path, finalOutput);
                 }
 
                 foreach (var dir in dirs)
@@ -237,11 +268,9 @@ namespace Auto7z.UI.Core
 
         private async Task<string?> TryExtractWithPasswordsAsync(string archivePath, string tempRoot, InArchiveFormat? forcedFormat = null)
         {
-            string extractPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(extractPath);
-
             var passwords = _pwdManager.GetAttemptSequence(archivePath).ToList();
             _log.Debug($"TryExtract: {passwords.Count} passwords to attempt, forcedFormat={forcedFormat?.ToString() ?? "null"}", "Engine");
+            Log?.Invoke($"Trying {passwords.Count} password candidate(s)...");
 
             return await Task.Run(() => 
             {
@@ -249,6 +278,9 @@ namespace Auto7z.UI.Core
                 foreach (var pwd in passwords)
                 {
                     index++;
+                    string attemptPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(attemptPath);
+
                     string pwdDisplay = string.IsNullOrEmpty(pwd) ? "(empty)" 
                         : pwd.Length <= 2 ? "**" 
                         : pwd[..2] + new string('*', Math.Min(pwd.Length - 2, 4));
@@ -271,41 +303,37 @@ namespace Auto7z.UI.Core
 
                             if (forcedFormat.HasValue)
                             {
-                                _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → forced format {forcedFormat.Value}, skipping Check(), trying direct extract", "Engine");
+                                _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → forced format {forcedFormat.Value}, direct extract", "Engine");
                                 Log?.Invoke(string.IsNullOrEmpty(pwd) ? "Attempting: (No Password)" : $"Attempting password: {pwd}");
-                                extractor.ExtractArchive(extractPath);
-                                var extractedFiles = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories);
-                                if (extractedFiles.Length > 0)
+                                extractor.ExtractArchive(attemptPath);
+                                if (HasAnyExtractedEntry(attemptPath))
                                 {
-                                    _log.Debug($"Forced extraction succeeded with {pwdDisplay}, {extractedFiles.Length} file(s) extracted", "Engine");
-                                    return extractPath;
+                                    _log.Debug($"Forced extraction succeeded with {pwdDisplay}", "Engine");
+                                    return attemptPath;
                                 }
                                 _log.Debug($"Forced extraction produced 0 files with {pwdDisplay}", "Engine");
+                                TryDeleteDirectory(attemptPath);
                             }
                             else
                             {
-                                bool checkResult = extractor.Check();
-                                _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → Check()={checkResult}", "Engine");
-                                
-                                if (checkResult)
-                                {
-                                    Log?.Invoke(string.IsNullOrEmpty(pwd) ? "Attempting: (No Password)" : $"Attempting password: {pwd}");
-                                    extractor.ExtractArchive(extractPath);
-                                    var extractedFiles = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories);
-                                    _log.Debug($"Extraction succeeded with password {pwdDisplay}, {extractedFiles.Length} file(s) extracted", "Engine");
-                                    return extractPath;
-                                }
+                                _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → direct extract without pre-check", "Engine");
+                                Log?.Invoke(string.IsNullOrEmpty(pwd) ? "Attempting: (No Password)" : $"Attempting password: {pwd}");
+                                extractor.ExtractArchive(attemptPath);
+                                _log.Debug($"Extraction succeeded with password {pwdDisplay}", "Engine");
+                                return attemptPath;
                             }
                         }
                     }
                     catch (SevenZipException ex)
                     {
                         _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → SevenZipException: {ex.Message}", "Engine");
+                        TryDeleteDirectory(attemptPath);
                     }
                     catch (Exception ex)
                     {
                         _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → {ex.GetType().Name}: {ex.Message}", "Engine");
                         Log?.Invoke($"Error: {ex.Message}");
+                        TryDeleteDirectory(attemptPath);
                     }
                 }
                 return null;
@@ -324,7 +352,7 @@ namespace Auto7z.UI.Core
                 string extractPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(extractPath);
 
-                string pwdArg = string.IsNullOrEmpty(pwd) ? "" : $"-p\"{pwd}\"";
+                string pwdArg = string.IsNullOrEmpty(pwd) ? "-p\"\"" : $"-p\"{pwd}\"";
                 string args = $"x \"{archivePath}\" -o\"{extractPath}\" -y {pwdArg}";
 
                 _log.Debug($"CLI: 7z {args}", "Engine");
@@ -332,19 +360,19 @@ namespace Auto7z.UI.Core
                 try
                 {
                     var result = await RunProcessAsync("7z", args);
-                    var extractedFiles = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories);
+                    bool hasEntries = HasAnyExtractedEntry(extractPath);
 
-                    if (result.ExitCode == 0 && extractedFiles.Length > 0)
+                    if (result.ExitCode == 0 && hasEntries)
                     {
                         string pwdDisplay = string.IsNullOrEmpty(pwd) ? "(no password)" : pwd;
-                        _log.Debug($"CLI extraction succeeded with {pwdDisplay}, {extractedFiles.Length} file(s)", "Engine");
+                        _log.Debug($"CLI extraction succeeded with {pwdDisplay}", "Engine");
                         Log?.Invoke(string.IsNullOrEmpty(pwd)
                             ? "CLI extraction succeeded (No Password)"
                             : $"CLI extraction succeeded with password: {pwd}");
                         return extractPath;
                     }
 
-                    _log.Debug($"CLI exit={result.ExitCode}, files={extractedFiles.Length}, stderr={result.StdErr}", "Engine");
+                    _log.Debug($"CLI exit={result.ExitCode}, hasEntries={hasEntries}, stderr={result.StdErr}", "Engine");
                     try { Directory.Delete(extractPath, true); } catch { }
                 }
                 catch (Exception ex)
@@ -404,17 +432,21 @@ namespace Auto7z.UI.Core
                 return false;
             }
             
-            if (_settings.IsDisguisedExtension(ext))
+            bool isConfiguredTryExtension = _settings.DisguisedExtensions.Contains(ext) || _settings.IsDisguisedExtension(ext);
+            if (isConfiguredTryExtension)
             {
-                _log.Debug($"IsPotentialArchive: {fileName} → {ext} is disguised extension candidate, running signature check", "Engine");
+                _log.Debug($"IsPotentialArchive: {fileName} → {ext} is configured try-extension, running signature check for hint", "Engine");
                 if (_signatureDetector.IsDisguisedArchive(filePath, out var detectedFormat))
                 {
                     forcedFormat = detectedFormat;
                     _log.Debug($"IsPotentialArchive: {fileName} → disguised archive detected as {FileSignatureDetector.GetFormatName(detectedFormat!.Value)}", "Engine");
                     Log?.Invoke($"Disguised archive detected: {fileName} is actually {FileSignatureDetector.GetFormatName(detectedFormat!.Value)}");
-                    return true;
                 }
-                _log.Debug($"IsPotentialArchive: {fileName} → signature check negative, not a disguised archive", "Engine");
+                else
+                {
+                    _log.Debug($"IsPotentialArchive: {fileName} → signature check negative, but extension is configured to try", "Engine");
+                }
+                return true;
             }
             
             if (_nonArchiveExtensions.Contains(ext))
@@ -422,9 +454,15 @@ namespace Auto7z.UI.Core
                 _log.Debug($"IsPotentialArchive: {fileName} → {ext} is known non-archive → false", "Engine");
                 return false;
             }
-            
-            _log.Warning($"IsPotentialArchive: {fileName} → {ext} is unknown extension, treating as potential archive", "Engine");
-            return true;
+
+            if (_settings.AutoDetectUnknownExtensions)
+            {
+                _log.Warning($"IsPotentialArchive: {fileName} → {ext} unknown extension, auto-detect enabled → treating as potential archive", "Engine");
+                return true;
+            }
+
+            _log.Debug($"IsPotentialArchive: {fileName} → {ext} unknown extension, auto-detect disabled → treating as non-archive", "Engine");
+            return false;
         }
 
         private bool IsSplitVolumePartButNotFirst(string filePath)
@@ -456,6 +494,104 @@ namespace Auto7z.UI.Core
             if (System.Text.RegularExpressions.Regex.IsMatch(ext, @"^\.r\d+$"))
             {
                 _log.Debug($"SplitVolume: {name} → legacy RAR split {ext}, skipping", "Engine");
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryResolveToFirstVolume(string sourceFile, out string resolvedSource, out string message)
+        {
+            resolvedSource = sourceFile;
+            message = string.Empty;
+
+            if (!File.Exists(sourceFile))
+            {
+                return false;
+            }
+
+            string directory = Path.GetDirectoryName(sourceFile) ?? "";
+            string name = Path.GetFileName(sourceFile);
+            string ext = Path.GetExtension(sourceFile).ToLowerInvariant();
+            string fileNameNoExt = Path.GetFileNameWithoutExtension(sourceFile);
+
+            if (ext.Length == 4 && int.TryParse(ext.TrimStart('.'), out int numericPart) && numericPart > 1)
+            {
+                string firstPartPath = Path.Combine(directory, $"{fileNameNoExt}.001");
+                if (File.Exists(firstPartPath))
+                {
+                    resolvedSource = firstPartPath;
+                    message = $"Detected split volume input {name}, automatically switched to first part: {Path.GetFileName(firstPartPath)}";
+                    return true;
+                }
+                return false;
+            }
+
+            if (name.EndsWith(".rar", StringComparison.OrdinalIgnoreCase))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(name, @"^(.*)\.part(\d+)\.rar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success && int.TryParse(match.Groups[2].Value, out int partNum) && partNum > 1)
+                {
+                    string prefix = match.Groups[1].Value;
+                    int width = match.Groups[2].Value.Length;
+                    string firstPartName = $"{prefix}.part{1.ToString(new string('0', width))}.rar";
+                    string firstPartPath = Path.Combine(directory, firstPartName);
+
+                    if (File.Exists(firstPartPath))
+                    {
+                        resolvedSource = firstPartPath;
+                        message = $"Detected split volume input {name}, automatically switched to first part: {firstPartName}";
+                        return true;
+                    }
+                }
+            }
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(ext, @"^\.r\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                string firstPartPath = Path.Combine(directory, $"{fileNameNoExt}.rar");
+                if (File.Exists(firstPartPath))
+                {
+                    resolvedSource = firstPartPath;
+                    message = $"Detected legacy RAR split input {name}, automatically switched to first part: {Path.GetFileName(firstPartPath)}";
+                    return true;
+                }
+                return false;
+            }
+
+            return false;
+        }
+
+        private bool TryBuildMissingFirstVolumeMessage(string sourceFile, out string message)
+        {
+            message = string.Empty;
+            if (!File.Exists(sourceFile)) return false;
+
+            string name = Path.GetFileName(sourceFile);
+            string ext = Path.GetExtension(sourceFile).ToLowerInvariant();
+            string fileNameNoExt = Path.GetFileNameWithoutExtension(sourceFile);
+
+            if (ext.Length == 4 && int.TryParse(ext.TrimStart('.'), out int numericPart) && numericPart > 1)
+            {
+                message = $"Detected split volume input {name}, but first part {fileNameNoExt}.001 is missing. Please keep all parts in the same folder.";
+                return true;
+            }
+
+            if (name.EndsWith(".rar", StringComparison.OrdinalIgnoreCase))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(name, @"^(.*)\.part(\d+)\.rar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success && int.TryParse(match.Groups[2].Value, out int partNum) && partNum > 1)
+                {
+                    string prefix = match.Groups[1].Value;
+                    int width = match.Groups[2].Value.Length;
+                    string expected = $"{prefix}.part{1.ToString(new string('0', width))}.rar";
+                    message = $"Detected split volume input {name}, but first part {expected} is missing. Please keep all parts in the same folder.";
+                    return true;
+                }
+            }
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(ext, @"^\.r\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                message = $"Detected legacy RAR split input {name}, but first part {fileNameNoExt}.rar is missing. Please keep all parts in the same folder.";
                 return true;
             }
 
@@ -521,8 +657,7 @@ namespace Auto7z.UI.Core
             {
                 if (Directory.Exists(tempPath))
                 {
-                    var fileCount = Directory.GetFiles(tempPath, "*", SearchOption.AllDirectories).Length;
-                    _log.Debug($"Cleanup: removing {tempPath} ({fileCount} file(s))", "Engine");
+                    _log.Debug($"Cleanup: removing {tempPath}", "Engine");
                     Directory.Delete(tempPath, true);
                 }
             }
@@ -530,6 +665,32 @@ namespace Auto7z.UI.Core
             { 
                 _log.Warning($"Cleanup failed for {tempPath}: {ex.Message}", "Engine");
                 Log?.Invoke($"Warning: Could not fully clean up {tempPath}");
+            }
+        }
+
+        private static bool HasAnyExtractedEntry(string path)
+        {
+            try
+            {
+                return Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories).Any();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, true);
+                }
+            }
+            catch
+            {
             }
         }
     }
