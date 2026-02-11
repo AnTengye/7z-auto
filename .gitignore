@@ -35,4 +35,4 @@ build_output/
 
 # User specific (Optional, uncomment if you want to ignore local password changes)
 # passwords.txt
-# test
+test/

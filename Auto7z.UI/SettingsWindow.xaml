@@ -1,7 +1,6 @@
 <Window x:Class="Auto7z.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:core="clr-namespace:Auto7z.UI.Core"
         Title="Settings" Height="500" Width="550"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     

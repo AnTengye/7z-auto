@@ -76,8 +76,6 @@ namespace Auto7z.UI.Core
             catch { }
         }
 
-        public string GetPasswordsFilePath() => PasswordsFile;
-
         public void SetDisguisedExtensions(IEnumerable<string> extensions)
         {
             DisguisedExtensions.Clear();

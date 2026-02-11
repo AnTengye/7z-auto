@@ -150,8 +150,7 @@ namespace Auto7z.UI.Core
             if (extractedDir == null)
             {
                 Log?.Invoke($"Failed to extract {Path.GetFileName(currentFile)} or no password matched.");
-                // Move the archive itself to output so user can handle it
-                MoveToFinal(currentFile, finalOutput);
+                _log.Warning($"Extraction failed and no output will be produced for: {Path.GetFileName(currentFile)}", "Engine");
                 return;
             }
 
