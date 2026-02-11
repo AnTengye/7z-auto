@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.6" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Squid-Box.SevenZipSharp" Version="1.6.2.24" />
+  </ItemGroup>
+
+  <!-- Include ALL Core source files from Auto7z.UI -->
+  <ItemGroup>
+    <Compile Include="..\Auto7z.UI\Core\ExtractorEngine.cs" Link="Core\ExtractorEngine.cs" />
+    <Compile Include="..\Auto7z.UI\Core\PasswordManager.cs" Link="Core\PasswordManager.cs" />
+    <Compile Include="..\Auto7z.UI\Core\FileSignatureDetector.cs" Link="Core\FileSignatureDetector.cs" />
+    <Compile Include="..\Auto7z.UI\Core\AppSettings.cs" Link="Core\AppSettings.cs" />
+    <Compile Include="..\Auto7z.UI\Core\Logger.cs" Link="Core\Logger.cs" />
+  </ItemGroup>
+
+  <!-- 7z.dll needed at runtime -->
+  <ItemGroup>
+    <Content Include="..\Auto7z.UI\7z.dll" Link="7z.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

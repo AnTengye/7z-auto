@@ -16,16 +16,64 @@ namespace Auto7z.UI.Core
         public LogLevel LogLevel { get; set; } = LogLevel.Info;
 
         public HashSet<string> DisguisedExtensions { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> Passwords { get; private set; } = new();
 
         public void Load()
         {
             LoadDisguisedExtensions();
-            Logger.Instance.Debug($"Settings loaded: LogLevel={LogLevel}, DisguisedArchiveDetection={EnableDisguisedArchiveDetection}, AutoDetectUnknown={AutoDetectUnknownExtensions}", "Settings");
+            LoadPasswords();
+            Logger.Instance.Debug($"Settings loaded: LogLevel={LogLevel}, DisguisedArchiveDetection={EnableDisguisedArchiveDetection}, AutoDetectUnknown={AutoDetectUnknownExtensions}, Passwords={Passwords.Count}", "Settings");
         }
 
         public void Save()
         {
             SaveDisguisedExtensions();
+            SavePasswords();
+        }
+
+        public void SetPasswords(IEnumerable<string> passwords)
+        {
+            Passwords = passwords.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).ToList();
+            SavePasswords();
+        }
+
+        public void AddPassword(string password)
+        {
+            var trimmed = password.Trim();
+            if (string.IsNullOrEmpty(trimmed)) return;
+            if (Passwords.Contains(trimmed)) return;
+            Passwords.Add(trimmed);
+            SavePasswords();
+        }
+
+        private void LoadPasswords()
+        {
+            Passwords.Clear();
+
+            if (File.Exists(PasswordsFile))
+            {
+                try
+                {
+                    var lines = File.ReadAllLines(PasswordsFile)
+                        .Where(l => !string.IsNullOrWhiteSpace(l))
+                        .Select(l => l.Trim());
+                    Passwords.AddRange(lines);
+                    Logger.Instance.Debug($"Loaded {Passwords.Count} password(s) from {PasswordsFile}", "Settings");
+                }
+                catch
+                {
+                    Passwords = new List<string> { "123456", "password", "1234" };
+                }
+            }
+        }
+
+        private void SavePasswords()
+        {
+            try
+            {
+                File.WriteAllLines(PasswordsFile, Passwords);
+            }
+            catch { }
         }
 
         public string GetPasswordsFilePath() => PasswordsFile;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -28,12 +29,26 @@ namespace Auto7z.UI.Core
             ".txt", ".log", ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".mp3", ".mp4", ".avi", ".mkv", ".wav", ".pdf", ".doc", ".docx", ".xls", ".xlsx"
         };
 
+        private static readonly InArchiveFormat[] _bruteForceFormats =
+        {
+            InArchiveFormat.Rar,
+            InArchiveFormat.SevenZip,
+            InArchiveFormat.Zip,
+            InArchiveFormat.Tar,
+            InArchiveFormat.GZip,
+            InArchiveFormat.BZip2,
+            InArchiveFormat.XZ,
+            InArchiveFormat.Cab,
+            InArchiveFormat.Iso,
+        };
+
         public event Action<string>? Log;
+        public event Action<byte>? Progress;
 
         public ExtractorEngine(AppSettings settings)
         {
             _settings = settings;
-            _pwdManager = new PasswordManager();
+            _pwdManager = new PasswordManager(settings);
             _signatureDetector = new FileSignatureDetector();
             InitializeSevenZip();
         }
@@ -96,6 +111,29 @@ namespace Auto7z.UI.Core
             Log?.Invoke($"{new string('-', depth * 2)} Analysing: {Path.GetFileName(currentFile)}");
 
             string? extractedDir = await TryExtractWithPasswordsAsync(currentFile, tempRoot, forcedFormat);
+
+            if (extractedDir == null && forcedFormat == null && _settings.IsDisguisedExtension(ext))
+            {
+                _log.Debug($"Standard extraction failed for disguised extension {ext}, trying brute-force format detection", "Engine");
+                Log?.Invoke($"Trying brute-force format detection for {Path.GetFileName(currentFile)}...");
+
+                foreach (var candidateFormat in _bruteForceFormats)
+                {
+                    _log.Debug($"Brute-force trying format: {FileSignatureDetector.GetFormatName(candidateFormat)}", "Engine");
+                    extractedDir = await TryExtractWithPasswordsAsync(currentFile, tempRoot, candidateFormat);
+                    if (extractedDir != null)
+                    {
+                        _log.Debug($"Brute-force succeeded with format: {FileSignatureDetector.GetFormatName(candidateFormat)}", "Engine");
+                        Log?.Invoke($"Detected as {FileSignatureDetector.GetFormatName(candidateFormat)} via brute-force");
+                        break;
+                    }
+                }
+            }
+
+            if (extractedDir == null)
+            {
+                extractedDir = await TryExtractWithCliAsync(currentFile, tempRoot);
+            }
 
             if (extractedDir == null)
             {
@@ -229,16 +267,34 @@ namespace Auto7z.UI.Core
 
                         using (extractor)
                         {
-                            bool checkResult = extractor.Check();
-                            _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → Check()={checkResult}", "Engine");
-                            
-                            if (checkResult)
+                            extractor.Extracting += (_, args) => Progress?.Invoke(args.PercentDone);
+
+                            if (forcedFormat.HasValue)
                             {
+                                _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → forced format {forcedFormat.Value}, skipping Check(), trying direct extract", "Engine");
                                 Log?.Invoke(string.IsNullOrEmpty(pwd) ? "Attempting: (No Password)" : $"Attempting password: {pwd}");
                                 extractor.ExtractArchive(extractPath);
                                 var extractedFiles = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories);
-                                _log.Debug($"Extraction succeeded with password {pwdDisplay}, {extractedFiles.Length} file(s) extracted", "Engine");
-                                return extractPath;
+                                if (extractedFiles.Length > 0)
+                                {
+                                    _log.Debug($"Forced extraction succeeded with {pwdDisplay}, {extractedFiles.Length} file(s) extracted", "Engine");
+                                    return extractPath;
+                                }
+                                _log.Debug($"Forced extraction produced 0 files with {pwdDisplay}", "Engine");
+                            }
+                            else
+                            {
+                                bool checkResult = extractor.Check();
+                                _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → Check()={checkResult}", "Engine");
+                                
+                                if (checkResult)
+                                {
+                                    Log?.Invoke(string.IsNullOrEmpty(pwd) ? "Attempting: (No Password)" : $"Attempting password: {pwd}");
+                                    extractor.ExtractArchive(extractPath);
+                                    var extractedFiles = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories);
+                                    _log.Debug($"Extraction succeeded with password {pwdDisplay}, {extractedFiles.Length} file(s) extracted", "Engine");
+                                    return extractPath;
+                                }
                             }
                         }
                     }
@@ -254,6 +310,71 @@ namespace Auto7z.UI.Core
                 }
                 return null;
             });
+        }
+
+        private async Task<string?> TryExtractWithCliAsync(string archivePath, string tempRoot)
+        {
+            _log.Debug($"CLI fallback: attempting 7z.exe for {Path.GetFileName(archivePath)}", "Engine");
+            Log?.Invoke($"Falling back to 7z CLI for {Path.GetFileName(archivePath)}...");
+
+            var passwords = _pwdManager.GetAttemptSequence(archivePath).ToList();
+
+            foreach (var pwd in passwords)
+            {
+                string extractPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(extractPath);
+
+                string pwdArg = string.IsNullOrEmpty(pwd) ? "" : $"-p\"{pwd}\"";
+                string args = $"x \"{archivePath}\" -o\"{extractPath}\" -y {pwdArg}";
+
+                _log.Debug($"CLI: 7z {args}", "Engine");
+
+                try
+                {
+                    var result = await RunProcessAsync("7z", args);
+                    var extractedFiles = Directory.GetFiles(extractPath, "*", SearchOption.AllDirectories);
+
+                    if (result.ExitCode == 0 && extractedFiles.Length > 0)
+                    {
+                        string pwdDisplay = string.IsNullOrEmpty(pwd) ? "(no password)" : pwd;
+                        _log.Debug($"CLI extraction succeeded with {pwdDisplay}, {extractedFiles.Length} file(s)", "Engine");
+                        Log?.Invoke(string.IsNullOrEmpty(pwd)
+                            ? "CLI extraction succeeded (No Password)"
+                            : $"CLI extraction succeeded with password: {pwd}");
+                        return extractPath;
+                    }
+
+                    _log.Debug($"CLI exit={result.ExitCode}, files={extractedFiles.Length}, stderr={result.StdErr}", "Engine");
+                    try { Directory.Delete(extractPath, true); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    _log.Debug($"CLI exception: {ex.GetType().Name}: {ex.Message}", "Engine");
+                    try { Directory.Delete(extractPath, true); } catch { }
+                }
+            }
+
+            _log.Debug("CLI fallback: all passwords exhausted", "Engine");
+            return null;
+        }
+
+        private static async Task<(int ExitCode, string StdOut, string StdErr)> RunProcessAsync(string fileName, string arguments)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+
+            using var process = Process.Start(psi)!;
+            var stdOut = await process.StandardOutput.ReadToEndAsync();
+            var stdErr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return (process.ExitCode, stdOut, stdErr);
         }
 
         private bool IsPotentialArchive(string filePath)

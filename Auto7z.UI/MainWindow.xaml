@@ -8,6 +8,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="120"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="30"/>
         </Grid.RowDefinitions>
 
@@ -27,8 +28,13 @@
                  VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"
                  TextWrapping="Wrap" Background="#222" Foreground="#EEE" Padding="5"/>
 
+        <!-- Progress Bar -->
+        <ProgressBar x:Name="ExtractionProgress" Grid.Row="2" Height="6" Minimum="0" Maximum="100"
+                     Value="0" Visibility="Collapsed" Margin="0,0,0,2"
+                     Foreground="#4CAF50" Background="#333"/>
+
         <!-- Status Bar -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Center">
             <TextBlock x:Name="StatusText" Text="Ready." Foreground="#666"/>
             <Button x:Name="SettingsButton" Content="⚙ Settings" Margin="20,0,0,0" 
                     Padding="10,2" Click="SettingsButton_Click"/>

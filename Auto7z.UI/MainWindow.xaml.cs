@@ -22,6 +22,7 @@ namespace Auto7z.UI
 
             _engine = new ExtractorEngine(_settings);
             _engine.Log += msg => Logger.Instance.Info(msg, "Engine");
+            _engine.Progress += OnProgress;
 
             Logger.Instance.Info("Auto7z initialized. Waiting for files...", "UI");
             Logger.Instance.Debug($"Current Directory: {AppDomain.CurrentDomain.BaseDirectory}", "UI");
@@ -38,6 +39,17 @@ namespace Auto7z.UI
                 LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
                 LogBox.ScrollToEnd();
                 StatusText.Text = message;
+            });
+        }
+
+        private void OnProgress(byte percent)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (ExtractionProgress.Visibility != Visibility.Visible)
+                    ExtractionProgress.Visibility = Visibility.Visible;
+                
+                ExtractionProgress.Value = percent;
             });
         }
 
@@ -87,6 +99,8 @@ namespace Auto7z.UI
                     }
 
                     _isBusy = true;
+                    ExtractionProgress.Visibility = Visibility.Visible;
+                    ExtractionProgress.Value = 0;
                     try
                     {
                         foreach (var path in files)
@@ -130,6 +144,7 @@ namespace Auto7z.UI
                     }
                     finally
                     {
+                        ExtractionProgress.Visibility = Visibility.Collapsed;
                         _isBusy = false;
                     }
                 }
