@@ -30,10 +30,10 @@ jobs:
         dotnet publish Auto7z.UI/Auto7z.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o build_output/standalone
         mv build_output/standalone/Auto7z.UI.exe build_output/standalone/Auto7z-Standalone.exe
 
-    # 2. Build Framework-Dependent (Requires Runtime)
+    # 2. Build Framework-Dependent (Requires installed .NET runtime)
     - name: Publish Framework-Dependent
       run: |
-        dotnet publish Auto7z.UI/Auto7z.UI.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o build_output/framework-dependent
+        dotnet publish Auto7z.UI/Auto7z.UI.csproj -c Release --self-contained false -o build_output/framework-dependent
         mv build_output/framework-dependent/Auto7z.UI.exe build_output/framework-dependent/Auto7z-NoRuntime.exe
 
     # Zip the artifacts to keep them organized (especially if there are extra dlls)
