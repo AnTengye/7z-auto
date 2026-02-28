@@ -51,8 +51,7 @@ namespace Auto7z.Tests
         {
             var settings = new AppSettings
             {
-                AutoDetectUnknownExtensions = false,
-                EnableDisguisedArchiveDetection = false
+                AutoDetectUnknownExtensions = false
             };
             settings.DisguisedExtensions.Add(".tif");
             var engine = new ExtractorEngine(settings);

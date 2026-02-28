@@ -43,7 +43,6 @@ namespace Auto7z.Tests
         {
             var settings = new AppSettings();
             settings.Load();
-            settings.EnableDisguisedArchiveDetection = true;
             var exts = new HashSet<string>(settings.DisguisedExtensions, StringComparer.OrdinalIgnoreCase);
             exts.Add(".tif");
             settings.SetDisguisedExtensions(exts);

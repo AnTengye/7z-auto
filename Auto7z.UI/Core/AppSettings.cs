@@ -11,7 +11,6 @@ namespace Auto7z.UI.Core
         private static readonly string PasswordsFile = Path.Combine(ConfigDir, "passwords.txt");
         private static readonly string DisguisedExtensionsFile = Path.Combine(ConfigDir, "disguised_extensions.txt");
 
-        public bool EnableDisguisedArchiveDetection { get; set; } = false;
         public bool AutoDetectUnknownExtensions { get; set; } = false;
         public LogLevel LogLevel { get; set; } = LogLevel.Info;
 
@@ -22,7 +21,7 @@ namespace Auto7z.UI.Core
         {
             LoadDisguisedExtensions();
             LoadPasswords();
-            Logger.Instance.Debug($"Settings loaded: LogLevel={LogLevel}, DisguisedArchiveDetection={EnableDisguisedArchiveDetection}, AutoDetectUnknown={AutoDetectUnknownExtensions}, Passwords={Passwords.Count}", "Settings");
+            Logger.Instance.Debug($"Settings loaded: LogLevel={LogLevel}, AutoDetectUnknown={AutoDetectUnknownExtensions}, Passwords={Passwords.Count}", "Settings");
         }
 
         public void Save()
@@ -131,8 +130,7 @@ namespace Auto7z.UI.Core
         private void CreateDefaultDisguisedExtensionsFile()
         {
             var defaultContent = @"# Disguised Archive Extensions
-# Extensions listed here will be checked for hidden archive content
-# when 'Detect Disguised Archives' option is enabled.
+# Extensions listed here will be treated as potential disguised archives.
 # One extension per line. Lines starting with # are comments.
 
 .mp4
@@ -156,7 +154,6 @@ namespace Auto7z.UI.Core
 
         public bool IsDisguisedExtension(string extension)
         {
-            if (!EnableDisguisedArchiveDetection) return false;
             return DisguisedExtensions.Contains(extension);
         }
     }

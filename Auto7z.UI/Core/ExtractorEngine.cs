@@ -153,7 +153,9 @@ namespace Auto7z.UI.Core
 
                 // If this is a disguised-extension file (e.g. mp4/avi that might be a hidden archive),
                 // treat it as a plain media file and copy it to the output instead of discarding it.
-                bool isDisguisedExt = forcedFormat == null && _settings.IsDisguisedExtension(ext);
+                // Use the same condition as IsPotentialArchive (direct set lookup).
+                bool isDisguisedExt = forcedFormat == null &&
+                    (_settings.DisguisedExtensions.Contains(ext) || _settings.IsDisguisedExtension(ext));
                 if (isDisguisedExt)
                 {
                     _log.Debug($"Disguised-ext file is not an archive; copying as plain file: {Path.GetFileName(currentFile)}", "Engine");

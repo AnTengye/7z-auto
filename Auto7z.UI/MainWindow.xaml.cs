@@ -63,7 +63,7 @@ namespace Auto7z.UI
             {
                 Logger.Instance.MinLevel = _settings.LogLevel;
                 Logger.Instance.Info("Settings saved.", "UI");
-                Logger.Instance.Debug($"New LogLevel: {_settings.LogLevel}, DisguisedArchiveDetection: {_settings.EnableDisguisedArchiveDetection}", "UI");
+                Logger.Instance.Debug($"New LogLevel: {_settings.LogLevel}", "UI");
             }
         }
 
