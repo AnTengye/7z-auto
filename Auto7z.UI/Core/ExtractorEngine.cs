@@ -150,7 +150,20 @@ namespace Auto7z.UI.Core
             if (extractedDir == null)
             {
                 Log?.Invoke($"Failed to extract {Path.GetFileName(currentFile)} or no password matched.");
-                _log.Warning($"Extraction failed and no output will be produced for: {Path.GetFileName(currentFile)}", "Engine");
+
+                // If this is a disguised-extension file (e.g. mp4/avi that might be a hidden archive),
+                // treat it as a plain media file and copy it to the output instead of discarding it.
+                bool isDisguisedExt = forcedFormat == null && _settings.IsDisguisedExtension(ext);
+                if (isDisguisedExt)
+                {
+                    _log.Debug($"Disguised-ext file is not an archive; copying as plain file: {Path.GetFileName(currentFile)}", "Engine");
+                    Log?.Invoke($"Treating {Path.GetFileName(currentFile)} as a plain file and copying to output.");
+                    MoveFileToFinal(currentFile, finalOutput);
+                }
+                else
+                {
+                    _log.Warning($"Extraction failed and no output will be produced for: {Path.GetFileName(currentFile)}", "Engine");
+                }
                 return;
             }
 
