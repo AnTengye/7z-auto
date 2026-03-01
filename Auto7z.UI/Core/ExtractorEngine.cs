@@ -151,15 +151,12 @@ namespace Auto7z.UI.Core
             {
                 Log?.Invoke($"Failed to extract {Path.GetFileName(currentFile)} or no password matched.");
 
-                // If this is a disguised-extension file (e.g. mp4/avi that might be a hidden archive),
-                // treat it as a plain media file and copy it to the output instead of discarding it.
-                // Use the same condition as IsPotentialArchive (direct set lookup).
-                bool isDisguisedExt = forcedFormat == null &&
-                    (_settings.DisguisedExtensions.Contains(ext) || _settings.IsDisguisedExtension(ext));
-                if (isDisguisedExt)
+                if (depth > 0)
                 {
-                    _log.Debug($"Disguised-ext file is not an archive; copying as plain file: {Path.GetFileName(currentFile)}", "Engine");
-                    Log?.Invoke($"Treating {Path.GetFileName(currentFile)} as a plain file and copying to output.");
+                    // This file is itself a product of a prior extraction layer.
+                    // Output it as-is since we can't extract further.
+                    _log.Debug($"Depth {depth}: outputting as final product: {Path.GetFileName(currentFile)}", "Engine");
+                    Log?.Invoke($"Outputting {Path.GetFileName(currentFile)} as final product.");
                     MoveFileToFinal(currentFile, finalOutput);
                 }
                 else
@@ -333,8 +330,13 @@ namespace Auto7z.UI.Core
                                 _log.Debug($"Password [{index}/{passwords.Count}]: {pwdDisplay} → direct extract without pre-check", "Engine");
                                 Log?.Invoke(string.IsNullOrEmpty(pwd) ? "Attempting: (No Password)" : $"Attempting password: {pwd}");
                                 extractor.ExtractArchive(attemptPath);
-                                _log.Debug($"Extraction succeeded with password {pwdDisplay}", "Engine");
-                                return attemptPath;
+                                if (HasAnyExtractedEntry(attemptPath))
+                                {
+                                    _log.Debug($"Extraction succeeded with password {pwdDisplay}", "Engine");
+                                    return attemptPath;
+                                }
+                                _log.Debug($"Extraction produced 0 files with {pwdDisplay}", "Engine");
+                                TryDeleteDirectory(attemptPath);
                             }
                         }
                     }
@@ -366,8 +368,10 @@ namespace Auto7z.UI.Core
                 string extractPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(extractPath);
 
-                string pwdArg = string.IsNullOrEmpty(pwd) ? "-p\"\"" : $"-p\"{pwd}\"";
-                string args = $"x \"{archivePath}\" -o\"{extractPath}\" -y {pwdArg}";
+                string pwdArg = string.IsNullOrEmpty(pwd) ? "" : $"-p\"{pwd}\"";
+                string args = string.IsNullOrEmpty(pwdArg)
+                    ? $"x \"{archivePath}\" -o\"{extractPath}\" -y"
+                    : $"x \"{archivePath}\" -o\"{extractPath}\" -y {pwdArg}";
 
                 _log.Debug($"CLI: 7z {args}", "Engine");
 
